@@ -117,6 +117,7 @@ def _fetch_vtt_url_sync(video_id: str):
         "writeautomaticsub": True,
         "subtitlesformat": "vtt",
         "subtitleslangs": ["en", "en.*", "en-US", "en-GB"],
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -171,13 +172,13 @@ def _get_audio_url_sync(video_id: str) -> str:
         "no_warnings": True,
         "skip_download": True,
         "format": "bestaudio/best",
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(
             f"https://www.youtube.com/watch?v={video_id}",
             download=False
         )
-        # Get the direct audio stream URL
         return info.get("url", "")
 
 
