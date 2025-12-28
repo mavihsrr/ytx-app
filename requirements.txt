@@ -1,0 +1,11 @@
+fastapi==0.128.0
+uvicorn[standard]==0.40.0
+python-dotenv==1.2.1
+langchain-core==1.2.5
+langchain-openai==1.1.6
+langchain-text-splitters==1.1.0
+youtube-transcript-api==1.2.3
+yt-dlp==2024.12.23
+pydantic==2.12.5
+tiktoken==0.12.0
+httpx==0.28.1

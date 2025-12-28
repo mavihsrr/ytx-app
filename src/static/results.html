@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{{title}} – ytx.ai</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root{--bg:#fafafa;--surface:#fff;--text:#1a1a1a;--muted:#6b7280;--accent:#0d9488;--border:#e5e7eb;--radius:12px;--shadow:0 4px 24px rgba(0,0,0,.06)}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
+    .container{max-width:720px;margin:0 auto;padding:48px 24px}
+    .logo{font-size:24px;font-weight:700;text-align:center;margin-bottom:32px}.logo span{color:var(--accent)}
+    .card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:32px;margin-bottom:24px}
+    .title{font-size:22px;font-weight:700;margin-bottom:8px}
+    .desc{color:var(--muted);font-size:14px;margin-bottom:24px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+    .section-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:12px}
+    .summary{margin-bottom:28px}
+    .summary ul{list-style:none}
+    .summary li{position:relative;padding-left:18px;margin-bottom:10px;font-size:15px}
+    .summary li::before{content:'';position:absolute;left:0;top:9px;width:6px;height:6px;background:var(--accent);border-radius:50%}
+    .chapters ul{list-style:none}
+    .chapter-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+    .chapter-item:last-child{border:none}
+    .ts{font-size:13px;font-weight:600;font-family:monospace;color:var(--accent);background:rgba(13,148,136,.1);padding:4px 10px;border-radius:6px;min-width:55px;text-align:center}
+    .audio-player{margin-bottom:28px;padding:20px;background:rgba(13,148,136,.05);border-radius:var(--radius);border:1px solid var(--border)}
+    .audio-controls{display:flex;align-items:center;gap:16px;margin-bottom:12px}
+    .play-btn{background:var(--accent);color:#fff;border:none;padding:12px 24px;border-radius:50px;font-weight:600;font-size:14px;cursor:pointer;transition:all .2s ease}
+    .play-btn:hover{background:#0f766e;transform:translateY(-1px)}
+    .play-btn:disabled{opacity:.5;cursor:not-allowed}
+    audio{width:100%;margin-top:8px}
+    .audio-label{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px}
+    .coffee-btn{position:fixed;bottom:24px;right:24px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);color:var(--text);text-decoration:none;padding:10px 18px;border-radius:50px;font-weight:500;font-size:14px;box-shadow:var(--shadow);transition:all .2s ease;z-index:1000}
+    .coffee-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.12);border-color:var(--accent)}
+    .coffee-icon{font-size:18px}
+    footer{text-align:center;color:var(--muted);font-size:13px;padding:24px}
+    footer a{color:var(--accent);text-decoration:none;font-weight:500}
+    footer a:hover{text-decoration:underline}
+    @media(max-width:600px){.container{padding:24px 16px}.card{padding:24px}.title{font-size:18px}.coffee-btn{bottom:16px;right:16px;padding:8px 14px;font-size:13px;gap:6px}.coffee-icon{font-size:16px}}
+  </style>
+</head>
+<body>
+  <a href="https://buymeacoffee.com/mavish" target="_blank" rel="noopener noreferrer" class="coffee-btn">
+    <span class="coffee-icon">☕</span>
+    <span>Buy me a coffee</span>
+  </a>
+  <div class="container">
+    <div class="logo">ytx<span>.ai</span></div>
+    <div class="card">
+      <h1 class="title">{{title}}</h1>
+      <p class="desc">{{description}}</p>
+      
+      <div class="audio-player">
+        <div class="audio-label">🎧 Listen Mode</div>
+        <div class="audio-controls">
+          <button id="playBtn" class="play-btn" onclick="loadAudio()">Load Audio</button>
+        </div>
+        <audio id="audioPlayer" controls style="display:none"></audio>
+      </div>
+
+      <div class="summary">
+        <h2 class="section-title">Summary</h2>
+        <ul>{{bullets}}</ul>
+      </div>
+      <div class="chapters">
+        <h2 class="section-title">Chapters</h2>
+        <ul>{{chapters}}</ul>
+      </div>
+    </div>
+    <footer>Built by <a href="https://buymeacoffee.com/mavish" target="_blank" rel="noopener noreferrer">Shivam</a> • Powered by ytx.ai</footer>
+  </div>
+  
+  <script>
+    const VIDEO_ID = '{{video_id}}';
+    
+    async function loadAudio() {
+      const btn = document.getElementById('playBtn');
+      const player = document.getElementById('audioPlayer');
+      
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+      
+      try {
+        const res = await fetch(`/api/audio/${VIDEO_ID}`);
+        const data = await res.json();
+        
+        if (data.audio_url) {
+          player.src = data.audio_url;
+          player.style.display = 'block';
+          player.play();
+          btn.style.display = 'none';
+        }
+      } catch (e) {
+        btn.textContent = 'Error loading audio';
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
