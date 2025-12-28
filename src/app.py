@@ -106,6 +106,9 @@ def _pick_vtt_url(track: list):
     return track[0].get("url")
 
 
+PROXY_URL = os.getenv("PROXY_URL")
+
+
 def _fetch_vtt_url_sync(video_id: str):
     """Get a VTT caption URL using yt-dlp (manual or auto captions)."""
     url = f"https://www.youtube.com/watch?v={video_id}"
@@ -119,6 +122,8 @@ def _fetch_vtt_url_sync(video_id: str):
         "subtitleslangs": ["en", "en.*", "en-US", "en-GB"],
         "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
+    if PROXY_URL:
+        ydl_opts["proxy"] = PROXY_URL
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         subs = info.get("subtitles") or {}
@@ -174,6 +179,8 @@ def _get_audio_url_sync(video_id: str) -> str:
         "format": "bestaudio/best",
         "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
+    if PROXY_URL:
+        ydl_opts["proxy"] = PROXY_URL
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(
             f"https://www.youtube.com/watch?v={video_id}",
