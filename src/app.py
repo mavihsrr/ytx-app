@@ -176,8 +176,7 @@ def _get_audio_url_sync(video_id: str) -> str:
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        "format": "bestaudio/best",
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
+        "format": "bestaudio/best"
     }
     if PROXY_URL:
         ydl_opts["proxy"] = PROXY_URL
