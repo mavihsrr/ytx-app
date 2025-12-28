@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from functools import lru_cache
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
@@ -12,7 +13,7 @@ from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from starlette.responses import JSONResponse, Response, HTMLResponse
-from youtube_transcript_api import YouTubeTranscriptApi
+import httpx
 import yt_dlp
 import uvicorn
 
@@ -83,25 +84,84 @@ def _extract_video_id(youtube_url: str) -> Optional[str]:
 
     return None
 
-def _fetch_transcript_sync(video_id: str):
-    api = YouTubeTranscriptApi()
-    return api.fetch(video_id)
+def _pick_track(subs: dict):
+    """Pick a caption track preferring English variants."""
+    if not subs:
+        return None
+    for key in ("en", "en-US", "en-GB"):
+        if key in subs:
+            return subs[key]
+    for key, val in subs.items():
+        if key.startswith("en"):
+            return val
+    return next(iter(subs.values()), None)
 
 
-def _fetch_metadata_sync(video_id: str) -> dict:
+def _pick_vtt_url(track: list):
+    if not track:
+        return None
+    for fmt in track:
+        if fmt.get("ext") == "vtt":
+            return fmt.get("url")
+    return track[0].get("url")
 
+
+def _fetch_vtt_url_sync(video_id: str):
+    """Get a VTT caption URL using yt-dlp (manual or auto captions)."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
     ydl_opts = {
-        "quiet": True,           # Don't print to stdout
-        "no_warnings": True,     # Suppress warnings
-        "skip_download": True,   # Only extract info, don't download video
-        "format": "bestaudio",   # Get best audio stream info
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitlesformat": "vtt",
+        "subtitleslangs": ["en", "en.*", "en-US", "en-GB"],
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(
-            f"https://www.youtube.com/watch?v={video_id}",
-            download=False
-        )
-    return info
+        info = ydl.extract_info(url, download=False)
+        subs = info.get("subtitles") or {}
+        autos = info.get("automatic_captions") or {}
+        track = _pick_track(subs) or _pick_track(autos)
+        if not track:
+            return None, info
+        return _pick_vtt_url(track), info
+
+
+def _parse_vtt_to_text(vtt_content: str) -> str:
+    """Convert VTT to plain text with [MM:SS] timestamps."""
+    out = []
+    for block in vtt_content.split("\n\n"):
+        if "-->" not in block:
+            continue
+        parts = block.split("\n")
+        if len(parts) < 2:
+            continue
+        ts_raw = parts[0].split(" --> ")[0].split(".")[0]  # HH:MM:SS
+        text = " ".join(parts[1:]).strip()
+        if not text:
+            continue
+        text = re.sub(r"<[^>]+>", "", text)
+        try:
+            hh, mm, ss = ts_raw.split(":")
+            mm_total = int(hh) * 60 + int(mm)
+            ts_fmt = f"{mm_total}:{int(ss):02d}"
+        except Exception:
+            ts_fmt = ts_raw
+        out.append(f"[{ts_fmt}] {text}")
+    return "\n".join(out)
+
+
+def _fetch_transcript_sync(video_id: str):
+    """Return transcript text with timestamps using yt-dlp captions only."""
+    vtt_url, info = _fetch_vtt_url_sync(video_id)
+    if not vtt_url:
+        raise RuntimeError("No captions available for this video")
+    resp = httpx.get(vtt_url, timeout=10.0)
+    resp.raise_for_status()
+    transcript_text = _parse_vtt_to_text(resp.text)
+    return transcript_text, info
+
 
 
 def _get_audio_url_sync(video_id: str) -> str:
@@ -123,32 +183,16 @@ def _get_audio_url_sync(video_id: str) -> str:
 
 async def get_video_data(video_id: str) -> dict:
     """
-    Main data fetching function - runs transcript and metadata in parallel.
-    
-    Flow:
-    1. Launch both API calls simultaneously (asyncio.gather)
-    2. Wait for both to complete (faster than sequential)
-    3. Format transcript with timestamps [MM:SS] text
-    4. Keep full transcript (chunking handled later in LLM call)
+    Fetch video transcript and metadata.
     
     Returns: {
         "title": str,
-        "description": str (first 500 chars),
+        "description": str,
         "transcript_with_timestamps": str (formatted with [MM:SS] prefixes)
     }
     """
-    # PARALLEL EXECUTION - Both run at the same time!
-    # asyncio.to_thread moves sync functions to thread pool
-    transcript, metadata = await asyncio.gather(
-        asyncio.to_thread(_fetch_transcript_sync, video_id),
-        asyncio.to_thread(_fetch_metadata_sync, video_id)
-    )
-    
-    # Format each transcript snippet as: [MM:SS] text
-    # snippet.start is in seconds (float)
-    transcript_with_timestamps = "\n".join(
-        f"[{int(snippet.start // 60)}:{int(snippet.start % 60):02d}] {snippet.text}"
-        for snippet in transcript  # transcript is iterable of snippets
+    transcript_with_timestamps, metadata = await asyncio.to_thread(
+        _fetch_transcript_sync, video_id
     )
     
     return {
@@ -179,17 +223,23 @@ async def summarize_video_data(video_data: dict) -> dict:
     chunks = splitter.split_text(transcript_text)
 
     prompt = ChatPromptTemplate.from_template(
-        """Summarize this YouTube transcript section.
+        """Analyze this YouTube video transcript and create a comprehensive summary.
 
-        Title: {title}
-        Description: {description}
+Title: {title}
+Description: {description}
 
-        Transcript:
-        {transcript_chunk}
+Transcript (with timestamps):
+{transcript_chunk}
 
-        {format_instructions}
+Instructions:
+1. Create a concise summary using bullet points (prefix each with "- ")
+2. Extract key chapters with exact timestamps from the transcript in MM:SS format
+3. Chapter titles should be 2-6 words, descriptive and action-oriented
+4. Use actual timestamps that appear in the transcript
 
-        Return JSON with keys "summary" ( use bullet points, use "- ") and "chapters" (title, timestamp MM:SS)."""
+{format_instructions}
+
+Respond ONLY with valid JSON."""
     )
 
     chain = prompt | llm | parser
@@ -221,19 +271,21 @@ async def summarize_video_data(video_data: dict) -> dict:
 
         bullets: list[str] = []
         for res in results:
-            bullets.extend(
-                line.strip() for line in res.get("summary", "").split("\n")
-                if line.strip().startswith("-")
-            )
+            if res and isinstance(res, dict):
+                bullets.extend(
+                    line.strip() for line in res.get("summary", "").split("\n")
+                    if line.strip().startswith("-")
+                )
 
         chapters: list[dict] = []
         seen: set[str] = set()
         for res in results:
-            for ch in res.get("chapters", []):
-                ts = ch.get("timestamp", "")
-                if ts and ts not in seen:
-                    seen.add(ts)
-                    chapters.append(ch)
+            if res and isinstance(res, dict):
+                for ch in res.get("chapters", []):
+                    ts = ch.get("timestamp", "")
+                    if ts and ts not in seen:
+                        seen.add(ts)
+                        chapters.append(ch)
 
         def ts_to_seconds(ts: str) -> int:
             try:
